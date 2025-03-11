@@ -1,0 +1,75 @@
+# usage: docker buildx build --build-context image=docker-image://bash:latest --file Dockerfile.local .
+
+# ---------
+
+# this is a hack to avoid "ERROR: failed to calculate checksum of ref XXX::XXX: "/foo/bar": not found"
+FROM --platform=$BUILDPLATFORM busybox AS mkdir
+
+RUN mkdir -p /repo-info-empty && touch /repo-info-empty/.repo-info-empty
+
+# ---------
+
+FROM --platform=$TARGETPLATFORM image AS img
+
+COPY --from=mkdir /repo-info-empty/.repo-info-empty /etc/
+COPY --from=mkdir /repo-info-empty/.repo-info-empty /usr/share/apk/
+COPY --from=mkdir /repo-info-empty/.repo-info-empty /usr/share/doc/
+COPY --from=mkdir /repo-info-empty/.repo-info-empty /usr/share/keyrings/
+COPY --from=mkdir /repo-info-empty/.repo-info-empty /var/lib/
+
+# ---------
+
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS deb
+
+RUN set -eux; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+		ca-certificates \
+		gawk \
+		wget \
+	; \
+	rm -rf /var/lib/apt/lists/*
+
+COPY .local-scripts/gather-dpkg.sh /usr/local/bin/
+
+RUN \
+	--mount=type=bind,from=img,source=/etc,target=/etc,rw \
+	--mount=type=bind,from=img,source=/usr/share/doc,target=/usr/share/doc \
+	--mount=type=bind,from=img,source=/usr/share/keyrings,target=/usr/share/keyrings \
+	--mount=type=bind,from=img,source=/var/lib,target=/var/lib,rw \
+	gather-dpkg.sh > /repo-info-dpkg.md
+
+# ---------
+
+FROM --platform=$BUILDPLATFORM alpine:3.21 AS apk
+
+RUN apk add --no-cache bash
+
+COPY .local-scripts/gather-apk.sh /usr/local/bin/
+
+RUN \
+	--mount=type=bind,from=img,source=/etc,target=/etc \
+	--mount=type=bind,from=img,source=/usr/share/apk,target=/usr/share/apk \
+	--mount=type=bind,from=img,source=/var/lib,target=/var/lib \
+	gather-apk.sh > /repo-info-apk.md
+
+# ---------
+
+FROM --platform=$BUILDPLATFORM oraclelinux:9 AS rpm
+
+COPY .local-scripts/gather-rpm.sh /usr/local/bin/
+
+RUN \
+	--mount=type=bind,from=img,source=/etc,target=/etc,rw \
+	--mount=type=bind,from=img,source=/var/lib,target=/var/lib \
+	gather-rpm.sh > /repo-info-rpm.md
+
+# ---------
+
+FROM --platform=$BUILDPLATFORM busybox
+
+WORKDIR /repo-info
+COPY --from=deb /repo-info-*.md ./
+COPY --from=apk /repo-info-*.md ./
+COPY --from=rpm /repo-info-*.md ./
+RUN find -mindepth 1 -empty -print -delete

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# apk or bust (quickly)
+[ -d /etc/apk ] || exit 0
+
 _apk() {
 	apk --no-network "$@" 2>/dev/null
 }
@@ -11,7 +14,7 @@ unset IFS
 
 if [ "${#packages[@]}" -eq 0 ]; then
 	# not Alpine-based?
-	exit 1
+	exit 0
 fi
 
 echo
@@ -25,6 +28,8 @@ join() {
 }
 
 for pkg in "${packages[@]}"; do
+	echo >&2 "- $pkg"
+
 	if [ "${pkg#.}" != "$pkg" ]; then
 		# if package name starts with a period, it's a pretty strong indicator that it's likely a user-created virtual and thus safely ignored for the purposes of this report
 		continue

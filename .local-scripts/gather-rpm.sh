@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# rpm-ish or bust (quickly)
+[ -d /etc/rpm ] \
+	|| [ -d /etc/dnf ] \
+	|| [ -d /etc/yum.repos.d ] \
+	|| [ -s /etc/yum.conf ] \
+	|| exit 0
+
 # try rebuilding RPM's database before querying it, just in case (helps with RPM version mismatches)
 rpm --rebuilddb &> /dev/null || :
 
@@ -10,7 +17,7 @@ unset IFS
 
 if [ "${#packages[@]}" -eq 0 ]; then
 	# not RedHat-based?
-	exit 1
+	exit 0
 fi
 
 # if "/etc/yum.conf" doesn't exist, let's create it (just in case); yumdownloader had issues with this, but "dnf download" probably does not?
@@ -44,6 +51,8 @@ if dnf repolist disabled 2>/dev/null | grep -qE '^source[[:space:]]+'; then
 fi
 
 for pkg in "${packages[@]}"; do
+	echo >&2 "- $pkg"
+
 	echo
 	echo '### `rpm` package: `'"$pkg"'`'
 

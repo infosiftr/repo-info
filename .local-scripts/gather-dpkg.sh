@@ -1,5 +1,8 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# APT or bust (quickly)
+[ -d /etc/apt ] || exit 0
 
 IFS=$'\n'
 rawPackages=( $(dpkg-query --show --showformat='${db:Status-Abbrev} ${source:Package}=${source:Version} ${binary:Package}=${Version}\n' 2>/dev/null) )
@@ -20,13 +23,12 @@ for rawPackage in "${rawPackages[@]}"; do
 	esac
 	src="${rawPackage[1]}"
 	bin="${rawPackage[2]}"
-	[ -z "${packages[$src]}" ] || packages[$src]+=' '
-	packages[$src]+="$bin"
+	packages[$src]+="${packages[$src]:+ }$bin"
 done
 
 if [ "${#packages[@]}" -eq 0 ]; then
 	# not Debian-based
-	exit 1
+	exit 0
 fi
 
 if [ -e /etc/apt/sources.list ] || [ -d /etc/apt/sources.list.d ]; then
@@ -64,12 +66,15 @@ join() {
 }
 
 for src in "${sortedSources[@]}"; do
+	echo >&2 "- $src"
+
 	echo
 	echo '### `dpkg` source package: `'"$src"'`'
 	echo
 	echo 'Binary Packages:'
 	echo
 	for bin in ${packages[$src]}; do
+		echo >&2 "  - $bin"
 		echo '- `'"$bin"'`'
 	done
 
@@ -100,7 +105,7 @@ for src in "${sortedSources[@]}"; do
 		fi
 		IFS=$'\n'
 		licenses+=( $(gawk -F ':[ \t]+' '$1 == "License" && NF > 1 { gsub(/^License:[ \t]+/, ""); print }' "$f") )
-		licenses+=( $(grep -oE '/usr/share/common-licenses/[0-9a-zA-Z_.+-]+' "$f" | cut -d/ -f5-) )
+		licenses+=( $(grep -oE '/usr/share/common-licenses/[0-9a-zA-Z_.+-]+' "$f" | cut -d/ -f5- || :) )
 		unset IFS
 		licenseFiles+=( "$f" )
 	done
